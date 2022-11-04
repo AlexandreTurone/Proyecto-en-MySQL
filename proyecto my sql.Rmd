@@ -1,0 +1,411 @@
+---
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+
+\section{MySQL}
+
+Importamos la base de datos de MySql a R.
+
+\medskip
+
+```{r}
+library(RODBC)
+library(RMySQL)
+
+mysqlconnection = dbConnect(RMySQL::MySQL(),
+                            dbname='exams',
+                            host='localhost',
+                            port=3306,
+                            user='root',
+                            password='turone97')
+
+dbListTables(mysqlconnection)
+dbSendQuery(mysqlconnection, "SET GLOBAL local_infile = true;") # <--- Added this
+#dbWriteTable(mysqlconnection, name= "exams", value= df, append= TRUE, temporary= FALSE)
+#dbDisconnect(mysqlconnection)
+
+```
+
+Verificamos la existencia de nuestra tabla de datos.
+\medskip
+```{sql connection=mysqlconnection}
+
+SELECT * FROM exmas;
+
+```
+
+Comenzamos creando una tabla denominada 'Nota_nivel_educacion' de modo a poder ver las notas de los alumnos ordenados según el grado académico que poseen.
+\medskip
+
+```{sql connection=mysqlconnection}
+
+create table Nota_nivel_educacion
+as select `parental level of education`, avg(`math score`) as Nota_media_mates, avg(`reading score`) as Nota_media_lectura, avg(`writing score`) as Nota_media_escritura 
+from exmas 
+group by `parental level of education`;
+
+
+```
+
+
+```{sql connection=mysqlconnection}
+
+select * from Nota_nivel_educacion;
+
+```
+A continuación realizamos la Nota media
+
+\medskip
+
+```{sql connection=mysqlconnection}
+
+select `parental level of education`, sum(Nota_media_mates + Nota_media_lectura + Nota_media_escritura)/3 as Nota_media
+ from Nota_nivel_educacion 
+ group by `parental level of education`;
+```
+Observamos como la nota media aumenta conforme el diploma adquirido requiere una edad más elevada. Podríamos decir que hay una correlación entre madurez del individuo y el estudio que efectúa. 
+
+\medskip 
+
+Vamos a ver si hay una correlación entre los alumnos que han realizado tests durante todo el curso y los que no lo han hecho.
+
+\medskip
+
+```{sql connection=mysqlconnection}
+create table eval_continua
+as select `test preparation course`, avg(`math score`) as Nota_media_mates, avg(`reading score`) as Nota_media_lectura, avg(`writing score`) as Nota_media_escritura
+from exmas
+group by `test preparation course`;
+```
+
+
+```{sql connection=mysqlconnection}
+
+select * from eval_continua;
+
+```
+Efectivamente, podemos ver a simple vista cómo los alumnos que han realizado una evaluación continua consiguen tener una nota media mayor que los que no lo han hecho.
+
+\medskip 
+
+Con el objetivo de añadir un poquito más de 'chicha' al asunto, vamos a ver qué sucede si ordenamos por géneros esta tabla.
+
+\medskip
+
+```{sql connection=mysqlconnection}
+create table Generos 
+as select gender, avg(`math score`) as Nota_media_mates, avg(`reading score`) as Nota_media_lectura, avg(`writing score`) as Nota_media_escritura
+from exmas
+group by gender;
+```
+
+
+```{sql connection=mysqlconnection}
+select * from Generos;
+
+```
+
+Obtenemos una nota media mayor para las mujeres que para los hombres. Veamos si hay alguna correlación con los test realizados durante todo el curso.
+
+\medskip
+
+```{sql connection=mysqlconnection}
+create table hombres
+as select gender, `test preparation course` from exmas where gender = 'male';
+```
+
+
+```{sql connection=mysqlconnection}
+
+select `test preparation course`, count(`test preparation course`) c 
+from hombres
+group by `test preparation course` having c > 1;
+```
+Hay 175 hombres que han completado la evaluación continua y 342 que no, mientras que para las mujeres:
+```{sql connection=mysqlconnection}
+create table mujeres
+as select gender, `test preparation course` from exmas where gender = 'female';
+
+```
+
+
+```{sql connection=mysqlconnection}
+select `test preparation course`, count(`test preparation course`) c 
+from mujeres
+group by `test preparation course` having c > 1;
+```
+En el caso de las mujeres; 160 han completado la evaluación continua y 323 no.
+Realizando un cácluclo rápido, el 51,1% de los hombres han realizado la evaluacion continua y el 49.5% la han realizado las mujeres.
+
+\medskip
+
+```{r, include = FALSE}
+
+#dbWriteTable(mysqlconnection, name= "table", value= df, append= TRUE, temporary= FALSE)
+dbDisconnect(mysqlconnection)
+```
+
+
+
+\section{De MySQL a Python}
+
+
+Para terminar con un mejor sabor de boca, usaremos lo aprendido anteriormente para predecir las notas medias de los alumnos según el grado de educación que poseen, el género, etc...
+
+\medskip
+
+Empezamos filtrando y ordenando los datos, así como convertir las columnas con cadena de texto en números enteros. En machine learning es imprescindible convertir las cadenas de texto en datos numéricos para poder ejecutar un modelo predictivo. 
+
+
+
+```{r, include = FALSE}
+library(reticulate)
+use_python('/Users/alexandremartinez/miniforge3/bin/python')
+```
+
+```{python, include = FALSE}
+import cv2
+import xlrd 
+import pandas as pd 
+import numpy as np
+
+file = '/Users/alexandremartinez/Desktop/tabla_alumnos.csv'
+
+df = pd.read_csv(file, sep = ';')
+
+
+#df.head()
+df = df.drop('Nota_media', axis=1)
+```
+
+
+```{python, include = FALSE}
+Nota_media = np.zeros(len(df.index))
+apreciacion = []
+
+for i in range(len(df.index)):
+    Nota_media[i] = round((df['math score'].values[i] + df['reading score'].values[i] + 
+                           df['writing score'].values[i])/3, 3)
+    if Nota_media[i]<50:
+        apreciacion.append('Suspenso')
+    if Nota_media[i]==50:
+        apreciacion.append('Aprobado')
+    if (Nota_media[i]>50 and Nota_media[i]<=70):
+        apreciacion.append('Notable')
+    if (Nota_media[i]>70):
+        apreciacion.append('Sobresaliente')
+        
+    
+    
+
+df['Nota_media'] = Nota_media
+df['Apreciacion'] = apreciacion
+```
+
+\medskip 
+
+Con los siguientes comandos podemos sustituir las cadenas de texto por números enteros.
+
+\medskip
+
+```{python}
+
+df['gender'].replace(['male', 'female'], [0,1], inplace = True)
+df['test preparation course'].replace(['completed', 'none'], [2,3], inplace = True)
+df['Apreciacion'].replace(['Suspenso', 'Aprobado', 'Notable', 'Sobresaliente'], [4,5,6,7], inplace = True)
+
+df['parental level of education'].replace(['high school', 'some high school', 'some college', "associate's degree", "bachelor's degree","master's degree" ], [8,9,10,11,12,13], inplace = True)
+
+import matplotlib.pyplot as plt
+from sklearn.linear_model import Ridge
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split
+
+
+
+y = df['Nota_media']
+
+X = df.drop(['race/ethnicity', 'lunch', 'math score', 'reading score', 
+            'writing score', 'Nota_media'], axis = 1 )
+
+
+xtrain, xtest, ytrain, ytest = train_test_split(X, y, test_size = 0.1, random_state = 5)
+
+
+```
+
+Los dos modelos que usaremos son los siguientes:
+
+\medskip
+
+
+```{python}
+model_R = Ridge()
+model_R.fit(xtrain, ytrain)
+
+model_F = RandomForestRegressor()
+model_F.fit(xtrain, ytrain)
+
+
+plt.figure(figsize=(10, 10))
+plt.subplot(2,1,2)
+plt.scatter(ytest.index, ytest, label = 'Nota Real')
+plt.scatter(ytest.index, model_R.predict(xtest), label = 'Predicción')
+plt.title(f' Ridge model with: {round(model_R.score(xtrain, ytrain)*100, 3)} % accuracy')
+plt.legend()
+
+plt.subplot(2,1,1)
+plt.scatter(ytest.index, ytest, label = 'Nota Real')
+plt.scatter(ytest.index, model_F.predict(xtest), label = 'Predicción')
+plt.title(f' Forest model with: {round(model_F.score(xtrain, ytrain)*100, 3)} % accuracy')
+plt.legend()
+
+plt.subplots_adjust(hspace=0.6)
+plt.show()
+```
+
+Destacamos un ajuste mejor ejecutado para Random Forest Regressor que para el modelo Ridge. Aún así obtenemos unos resultados bastante óptimos. 
+
+\medskip
+
+Si quisiérmos realizar un ajuste mediante redes neuronales obtendríamos el siguiente resultado a corde al modelo que sigue:
+
+\medskip
+
+```{python, include = FALSE}
+data_train = np.asarray(xtrain)
+data_pred = ytrain.to_numpy()
+data_train = data_train.reshape(data_train.shape[0], data_train.shape[1], 1)
+data_pred = data_pred.reshape(-1)
+
+data_test = np.asarray(xtest)
+data_pred_test = ytest.to_numpy()
+data_test = data_test.reshape(data_test.shape[0], data_test.shape[1], 1)
+data_pred_test = data_pred_test.reshape(-1)
+
+
+
+#data_train.shape, data_pred.shape, data_test.shape, data_pred_test.shape
+
+
+
+```
+
+
+
+```{python}
+import tensorflow as tf 
+from tensorflow.keras.layers import Dense, Dropout, LSTM, InputLayer
+from tensorflow.keras.models import Sequential
+
+
+model = Sequential()
+
+model.add(InputLayer((4,1)))
+model.add(LSTM(64,'relu'))
+
+model.add(Dense(32, activation = 'relu'))
+model.add(Dropout(0.2))
+
+model.add(Dense(64, activation = 'relu'))
+model.add(Dropout(0.2))
+
+model.add(Dense(1, activation = 'linear'))
+
+model.compile(optimizer = 'Adam', loss = 'mse', metrics = ['RootMeanSquaredError'] )
+```
+
+
+```{python, include = FALSE}
+model.fit(data_train, data_pred, validation_data=(data_test, data_pred_test), epochs = 30, batch_size = 32)
+```
+
+
+```{python}
+scores = model.evaluate(data_test, data_pred_test, verbose=0)
+
+plt.plot(data_pred_test, label = 'Nota Real')
+plt.plot(model.predict(data_test), label = 'Predicción')
+plt.title(f'El Mean Squarred Error es: {scores[1]}')
+plt.legend()
+plt.show()
+```
+
+Mediante redes neruonales observamos un ajuste, de la predicción a la realidad, notorio.
+
+\section{Modelo de Clasificación}
+
+
+\medskip 
+
+Terminemos prediciendo algo un tanto más interesante. \textbf{¿Podríamos predecir qué diploma posee el alumno según las notas que haay obtenido?}
+
+\medskip
+
+Importamos los modelos pertinentes a, esta vez, una clasificación.
+\medskip
+
+```{python}
+
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split
+
+```
+
+```{python, include = FALSE}
+y = df['parental level of education']
+
+X = df.drop(['race/ethnicity', 'parental level of education', 'lunch', 
+             'Apreciacion', 'gender', 'Nota_media'], axis = 1 )
+X = np.float64(X)
+
+xtrain, xtest, ytrain, ytest = train_test_split(X, y, test_size = 0.1, random_state = 5)
+
+
+
+```
+
+```{python}
+model_KN = KNeighborsClassifier(algorithm = 'brute')
+model_KN.fit(xtrain, ytrain)
+
+model_SVC = SVC(decision_function_shape= 'ovo', kernel='poly')
+model_SVC.fit(xtrain, ytrain)
+```
+
+```{python, include = FALSE}
+plt.figure(figsize=(10, 10))
+plt.subplot(2,1,2)
+plt.scatter(ytest.index, ytest, label = 'Apreciacion Real')
+plt.scatter(ytest.index, model_KN.predict(xtest), label = 'Predicción', s = 10)
+plt.title(f' KN model with: {round(model_KN.score(xtrain, ytrain)*100, 3)} % accuracy')
+plt.legend()
+
+plt.subplot(2,1,1)
+plt.scatter(ytest.index, ytest, label = 'Apreciacion Real')
+plt.scatter(ytest.index, model_SVC.predict(xtest), label = 'Predicción', s = 10)
+plt.title(f' SVC model with: {round(model_SVC.score(xtrain, ytrain)*100, 3)} % accuracy')
+plt.legend()
+
+plt.subplots_adjust(hspace=0.6)
+```
+
+
+```{python}
+plt.show()
+
+```
+
+Concluimos con un resultado un tanto catastrófico de parte del modelo SVC, sin embargo para el modelo de KNeighbors parece presentar resultados no tan desastrosos. Si dispusiéramos de una tabla con una mayor cantidad de datos, estoy seguro que, obtendríamos un resultado más satisfactorio. Aún así, sigue siendo un porcentaje acceptable para una proyecto de 'exhibición'.
+
+
+
+
+
+
+
